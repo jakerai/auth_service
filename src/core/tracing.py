@@ -1,10 +1,10 @@
-# src/auth/tracing.py
 import contextvars
 import httpx
 import logging
 
 # Request ID context variable
 request_id_var = contextvars.ContextVar("request_id", default="N/A")
+client_ip_var = contextvars.ContextVar("client_ip", default="N/A")
 
 # Async HTTP client for downstream calls
 class TracedClient(httpx.AsyncClient):

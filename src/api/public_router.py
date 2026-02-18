@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from src.api.v1 import auth_api
+from src.api.v1 import oauth2_api
 
 # ----------------------------
 # Public Router
@@ -21,3 +22,4 @@ router = APIRouter()
 
 # Including authentication-related APIs
 router.include_router(auth_api.router)
+router.include_router(oauth2_api.router)

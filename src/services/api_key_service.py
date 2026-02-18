@@ -3,16 +3,17 @@ from typing import List, Optional
 import secrets
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from src.models.api_key import APIKey, APIKeyStatusEnum
+from src.models.api_key import ApiKey, ApiKeyStatusEnum
 from src.models.activity import ActionEnum, ResourceEnum
-from src.schemas.common.service_response import ServiceResponse
+from src.schemas.common.service_response import ServiceResponse, create_response
 from src.services.activity_service import ActivityService
 from src.config.logger import Logger
+from src.exception.auth_exceptions import NotFoundException
 
 log = Logger().get_logger()
 
 
-class APIKeyService:
+class ApiKeyService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.activity_service = ActivityService(db)
@@ -23,13 +24,13 @@ class APIKeyService:
     async def create_key(self, user_id: int, name: str, expires_in_days: Optional[int] = 30) -> ServiceResponse:
         log.info(f"Creating API key '{name}' for user_id={user_id}")
         token = secrets.token_urlsafe(32)
-        expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+        expires_at = datetime.now(datetime.timezone.utc) + timedelta(days=expires_in_days)
 
-        api_key = APIKey(
+        api_key = ApiKey(
             user_id=user_id,
             name=name,
             token=token,
-            status=APIKeyStatusEnum.ACTIVE,
+            status=ApiKeyStatusEnum.ACTIVE,
             expires_at=expires_at
         )
 
@@ -58,8 +59,7 @@ class APIKeyService:
             log.error(f"Failed to create API key '{name}' for user_id={user_id}: {e}")
             raise
 
-        return ServiceResponse.success_response(
-            "API key created",
+        return create_response(message="API key created successfully",
             data={"id": api_key.id, "token": token, "name": name, "expires_at": expires_at}
         )
 
@@ -68,33 +68,32 @@ class APIKeyService:
     # ----------------------------
     async def list_keys(self, user_id: int) -> ServiceResponse:
         log.info(f"Listing API keys for user_id={user_id}")
-        stmt = select(APIKey).where(APIKey.user_id == user_id)
+        stmt = select(ApiKey).where(ApiKey.user_id == user_id)
         result = await self.db.execute(stmt)
-        keys: List[APIKey] = result.scalars().all()
+        keys: List[ApiKey] = result.scalars().all()
 
         data = [
             {"id": k.id, "name": k.name, "status": k.status, "expires_at": k.expires_at}
             for k in keys
         ]
         log.info(f"Retrieved {len(data)} API keys for user_id={user_id}")
-        return ServiceResponse.success_response("API keys retrieved", data=data)
+        return create_response(message="API keys retrieved", data=data)
 
     # ----------------------------
     # GET API KEY DETAILS
     # ----------------------------
     async def get_key(self, user_id: int, key_id: int) -> ServiceResponse:
         log.info(f"Retrieving API key id={key_id} for user_id={user_id}")
-        stmt = select(APIKey).where(APIKey.id == key_id, APIKey.user_id == user_id)
+        stmt = select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == user_id)
         result = await self.db.execute(stmt)
         key = result.scalar_one_or_none()
 
         if not key:
             log.warning(f"API key not found: key_id={key_id}, user_id={user_id}")
-            return ServiceResponse.error_response("API key not found", 404)
+            raise NotFoundException("API key not found")
 
         log.info(f"API key retrieved successfully: key_id={key.id}")
-        return ServiceResponse.success_response(
-            "API key retrieved",
+        return create_response(message="API key retrieved",
             data={"id": key.id, "name": key.name, "status": key.status, "expires_at": key.expires_at}
         )
 
@@ -103,16 +102,16 @@ class APIKeyService:
     # ----------------------------
     async def revoke_key(self, user_id: int, key_id: int) -> ServiceResponse:
         log.info(f"Revoking API key id={key_id} for user_id={user_id}")
-        stmt = select(APIKey).where(APIKey.id == key_id, APIKey.user_id == user_id)
+        stmt = select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == user_id)
         result = await self.db.execute(stmt)
         key = result.scalar_one_or_none()
 
         if not key:
             log.warning(f"Cannot revoke, API key not found: key_id={key_id}, user_id={user_id}")
-            return ServiceResponse.error_response("API key not found", 404)
+            raise NotFoundException("API key not found")
 
         old_status = key.status
-        key.status = APIKeyStatusEnum.REVOKED
+        key.status = ApiKeyStatusEnum.REVOKED
         self.db.add(key)
 
         try:
@@ -139,4 +138,4 @@ class APIKeyService:
             log.error(f"Failed to revoke API key id={key_id}: {e}")
             raise
 
-        return ServiceResponse.success_response("API key revoked successfully")
+        return create_response(message="API key revoked successfully")

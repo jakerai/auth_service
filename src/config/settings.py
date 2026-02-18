@@ -28,4 +28,19 @@ JWT_KEY_TTL_SECONDS = 240  # Recommended: 1 hour (longer TTL makes rotation safe
 JWT_ROTATION_THRESHOLD_SECONDS = 60  # Start rotating 1 minute before expiry
 JWT_ROTATION_CHECK_INTERVAL_SECONDS = 60 # Check every 2 minutes
 # CORS
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:8005").split(",")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+
+#oauth2
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8005/oauth2/callback/google")
+
+FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_CLIENT_ID")
+FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET")
+FACEBOOK_REDIRECT_URI = os.getenv("FACEBOOK_REDIRECT_URI", "http://localhost:8005/oauth2/callback/facebook")
+
+#Redirect uri after successful social login (FRONTEND/MOBILE)
+OAUTH2_ALLOWED_REDIRECTS = {
+    "http://localhost:3000",
+    "https://127.0.0.1",
+}

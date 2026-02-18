@@ -79,7 +79,7 @@ class JwtKeyManager:
             )
 
             if not self.current_key_meta:
-                log.info("[JwtKeyManager] No current key found → creating new one")
+                log.info("[JwtKeyManager] No current key found -> creating new one")
                 self.current_key_meta = await self._create_new_key_and_save()
 
             self._rebuild_caches()

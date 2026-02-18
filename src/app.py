@@ -1,3 +1,10 @@
+"""
+Author: Vishal Rai
+Description: Implements JWT and OAuth2-based authentication, role-based
+access control, and JWT lifecycle management including
+signing, verification, and key rotation.
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.config.database import engine, Base, AsyncSessionLocal, test_connection
@@ -5,13 +12,14 @@ from src.api.protected_router import router as protected_router
 from src.api.public_router import router as public_router
 from src.config.settings import CORS_ORIGINS
 from src.exception.auth_exceptions_handler import register_exception_handlers
-from src.core.middlewares import RequestIDMiddleware
+from src.core.middlewares import RequestMiddleware
 from src.config.roles_loader import load_roles_permissions
 from src.config.logger import Logger
 from src.config.cache_roles import RoleCache
 from src.security.stores.factory import get_store
 from src.security.key_manager import JwtKeyManager
 from src.security import jwt_manager as jwt_helper
+from src.security.auth_cookie_middleware import AuthCookieMiddleware
 
 log = Logger().get_logger()
 
@@ -22,7 +30,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     
     # Adding middlewares
-    app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(RequestMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=CORS_ORIGINS,
@@ -30,7 +38,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
+    app.add_middleware(AuthCookieMiddleware)
     # Including public and protected routers
     app.include_router(public_router)
     app.include_router(protected_router)
@@ -82,8 +90,7 @@ def create_app() -> FastAPI:
         key_manager = JwtKeyManager(store=key_store)
         await key_manager.init()
         jwt_helper.jwt_manager = key_manager
-        log.info("Auth Service startup complete.")
-
+        log.info("Auth Service startup complete")
 
     return app
 

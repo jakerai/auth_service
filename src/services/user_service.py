@@ -1,21 +1,22 @@
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert
 from sqlalchemy.orm import selectinload
 from src.models.associations import user_roles
-from passlib.context import CryptContext
 from src.models.user import User, UserStatusEnum
-from src.models.role import Role
+from src.models.user_oauth_providers import OAuthProvider
 from src.models.activity import ActionEnum, ResourceEnum
 from src.schemas.common.service_response import ServiceResponse, create_response
 from src.services.activity_service import ActivityService
 from src.config.cache_roles import RoleCache
 from src.config.logger import Logger
 from src.exception.auth_exceptions import NotFoundException
+from src.schemas.user_response import to_user_response
+from datetime import datetime, timezone
+from src.utils.context import get_client_ip
+
 
 log = Logger().get_logger()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 class UserService:
     def __init__(self, db: AsyncSession):
@@ -52,20 +53,24 @@ class UserService:
     # ----------------------------
     # CREATE USER
     # ----------------------------
-    async def create_new_account(self, email: str, password: str, first_name: str, last_name: str):
+    async def create_new_account(self, email: str, password: str, first_name: str, last_name: str, roles: List[str]):
+        client_ip = get_client_ip()
+
         new_user = User(
             username=email,
             primary_email=email,
-            password=pwd_context.hash(password),
+            password=password,
             first_name=first_name,
             last_name=last_name,
+            last_login_at=datetime.now(timezone.utc),
+            last_login_ip=client_ip
         )
         try:
             self.db.add(new_user)
             await self.db.flush()
             log.info(f"[User:temp] Creating user {email}")
 
-            await self.assign_roles(new_user, ["USER"])
+            await self.assign_roles(new_user, roles)
 
             await self.db.commit()
             await self.db.refresh(new_user)
@@ -76,6 +81,101 @@ class UserService:
         except Exception as e:
             await self.db.rollback()
             log.error(f"[User:temp] Failed to create user {email}: {e}", exc_info=True)
+            raise
+
+
+
+    async def update_login(self, user: User):
+        try:
+            client_ip = get_client_ip()
+            user.last_login_at = datetime.now(timezone.utc)
+            if client_ip:
+                user.last_login_ip = client_ip
+            self.db.add(user)
+            await self.db.commit()
+            await self.db.refresh(user)
+            log.info(f"[User:{user.id}] Last login timestamp updated successfully")
+            return user
+        except Exception as e:
+            await self.db.rollback()
+            log.error(f"Failed to update login for User {user.id}: {str(e)}")
+            raise e
+
+    # ----------------------------
+    # CREATE USER Oauth2 (Social)
+    # ----------------------------
+    async def find_or_create_oauth_user(self, 
+                                        email: str, 
+                                        password: str, 
+                                        provider: str,
+                                          provider_user_id: str, 
+                                          first_name: str, 
+                                          last_name: str, 
+                                          roles: List[str]):
+        """
+        Find an existing user by email or create a new one.
+        Links the OAuth provider info if not already linked.
+        """
+
+        log.info(f"Creating user with email={email} for provider={provider}")
+
+        # Finding existing user
+        user = await self.find_account_by_email(email)  # returns None if not found
+        if not user:
+            log.debug("User not found. Creating new User.")
+            user = await self.create_new_account(email, password, first_name, last_name, roles)
+            log.info(f"User created successfully: id={user.id}, email={user.primary_email}")
+        else:
+            log.debug(f"Existing User found: id={user.id}")
+            user = await self.update_login(user)
+
+        # Checking if the provider is already linked
+        oauth_accounts = user.oauth_accounts
+        provider_exists = any(a.provider == provider for a in oauth_accounts)
+
+        if not provider_exists:
+            log.debug(f"User oauth provider '{provider}' not found. Creating new OAuth provider.")
+            await self._create_oauth_provider(
+                user_id=user.id,
+                provider=provider,
+                provider_user_id=provider_user_id
+            )
+        else:
+            log.debug(f"User oauth provider '{provider}' already linked.")
+        return await to_user_response(user)
+    
+    
+        
+    async def _create_oauth_provider(self, user_id: int, provider: str, provider_user_id: str):
+        new_provider = OAuthProvider(
+            user_id=user_id,
+            provider=provider,
+            provider_user_id=provider_user_id,
+        )
+
+        try:
+            self.db.add(new_provider)
+
+            # Flushing to catch DB constraint errors (like duplicate provider_user_id)
+            await self.db.flush()
+
+            # Committing the transaction
+            await self.db.commit()
+
+            # Refreshing to ensure the object is loaded and safe to use after commit
+            await self.db.refresh(new_provider)
+
+            log.info(f"Successfully created OAuth provider for user_id={user_id}")
+            return new_provider
+
+        except Exception:
+            # Rollback on any failure
+            await self.db.rollback()
+
+            log.error(
+                f"Failed to create OAuth provider for user_id={user_id}. Transaction rolled back.",
+                exc_info=True,
+            )
             raise
 
     # ----------------------------
@@ -113,13 +213,7 @@ class UserService:
         log.info(f"[User:{user_id}] Profile retrieved")
         return create_response(
             message="Profile retrieved",
-            data={
-                "id": user.id,
-                "username": user.username,
-                "email": user.primary_email,
-                "mobile": user.primary_mobile_number,
-                "status": user.status
-            }
+            data= await to_user_response(user)
         )
 
     # ----------------------------

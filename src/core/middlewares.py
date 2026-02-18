@@ -2,7 +2,7 @@
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from uuid import uuid4
-from src.core.tracing import request_id_var
+from src.core.tracing import request_id_var, client_ip_var
 from src.config.logger import Logger
 import secrets
 import string
@@ -25,10 +25,15 @@ def generate_id(length: int = 12) -> str:
     return ''.join(result)
 
 
-class RequestIDMiddleware(BaseHTTPMiddleware):
+class RequestMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        #Request ID
         request_id = request.headers.get("X-Request-ID", generate_id())
         token = request_id_var.set(request_id)
+
+        #Client IP
+        client_ip = request.client.host if request.client else "N/A"
+        client_ip_token = client_ip_var.set(client_ip)
         try:
             log.info(f"Incoming request: {request.method} {request.url.path}")
             response = await call_next(request)
@@ -36,3 +41,4 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             request_id_var.reset(token)
+            client_ip_var.reset(client_ip_token)

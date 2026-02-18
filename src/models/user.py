@@ -35,7 +35,7 @@ class User(BaseEntity):
     primary_email_verified = Column(Boolean, default=False)
     primary_mobile_number_verified = Column(Boolean, default=False)
 
-    # UPDATED: Use String instead of native Enum
+    # Using String instead of native Enum
     status = Column(
         String(50), 
         nullable=False, 
@@ -50,9 +50,7 @@ class User(BaseEntity):
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 
     # MANY TO MANY
-    roles = relationship(
-        "Role",
-        secondary=user_roles,
-        back_populates="users",
-        lazy="joined"
-    )
+    roles = relationship("Role", secondary=user_roles, back_populates="users", lazy="joined")
+
+    # ONE TO MANY
+    oauth_accounts = relationship("OAuthProvider", back_populates="user", lazy="selectin", cascade="all, delete-orphan")

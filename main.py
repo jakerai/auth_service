@@ -1,3 +1,13 @@
+"""
+Author: Vishal Rai
+Description: Implements JWT and OAuth2-based authentication, role-based
+access control, and JWT lifecycle management including
+signing, verification, and key rotation.
+"""
+
+from fastapi import Depends
+
+
 from src.app import create_app
 import uvicorn
 
